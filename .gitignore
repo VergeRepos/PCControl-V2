@@ -1,0 +1,36 @@
+.DS_Store
+node_modules/
+dist/
+build/
+*.log
+.env
+.env.local
+
+# Desktop
+desktop/node_modules/
+desktop/dist/
+desktop/src-tauri/target/
+desktop/src-tauri/Cargo.lock
+
+# Mobile
+mobile/node_modules/
+mobile/android/.gradle/
+mobile/android/build/
+mobile/android/app/build/
+mobile/ios/Pods/
+mobile/ios/build/
+
+# Shared
+shared/node_modules/
+shared/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
+.DS_Store

@@ -1,0 +1,17 @@
+{
+  "name": "pccontrol-shared",
+  "version": "1.0.0",
+  "description": "Shared protocol definitions for PC Control",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "keywords": ["pccontrol", "protocol"],
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
