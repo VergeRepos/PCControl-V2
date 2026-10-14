@@ -4,9 +4,14 @@ use sysinfo::{CpuExt, DiskExt, NetworkExt, ProcessExt, System, SystemExt};
 use std::sync::Arc;
 use parking_lot::RwLock;
 use once_cell::sync::Lazy;
+use std::time::Instant;
 
 static SYSTEM: Lazy<Arc<RwLock<System>>> = Lazy::new(|| {
     Arc::new(RwLock::new(System::new_all()))
+});
+
+static LAST_NETWORK_STATS: Lazy<Arc<RwLock<Option<(Instant, u64, u64)>>>> = Lazy::new(|| {
+    Arc::new(RwLock::new(None))
 });
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,19 +117,15 @@ pub fn get_system_info() -> Result<SystemInfo> {
         System::os_version().unwrap_or_else(|| "Unknown".to_string())
     );
 
-    // CPU info
     let cpu_model = sys.global_cpu_info().brand().to_string();
     let cores = sys.physical_core_count().unwrap_or(0);
     let threads = sys.cpus().len();
 
-    // GPU info (try to get NVIDIA GPU info)
     let (gpu_model, gpu_memory) = get_gpu_info();
 
-    // Memory info
     let total_memory = sys.total_memory();
     let available_memory = sys.available_memory();
 
-    // Storage info
     let mut storage = Vec::new();
     for disk in sys.disks() {
         storage.push(StorageInfo {
@@ -164,27 +165,17 @@ pub fn get_system_stats() -> Result<SystemStats> {
 
     let timestamp = chrono::Utc::now().timestamp_millis();
 
-    // CPU stats
     let cpu_usage = sys.global_cpu_info().cpu_usage();
     let cpu_temp = get_cpu_temperature();
 
-    // GPU stats
     let (gpu_usage, gpu_temp, gpu_mem) = get_gpu_stats();
 
-    // Memory stats
     let total_mem = sys.total_memory();
     let available_mem = sys.available_memory();
     let used_mem = total_mem - available_mem;
     let mem_usage_percent = (used_mem as f32 / total_mem as f32) * 100.0;
 
-    // Network stats
     let (download_rate, upload_rate) = get_network_rates(&sys);
-
-    // Disk stats (simplified - would need more complex tracking)
-    let disk_stats = DiskStats {
-        read_bytes_per_sec: 0,
-        write_bytes_per_sec: 0,
-    };
 
     Ok(SystemStats {
         timestamp,
@@ -206,7 +197,10 @@ pub fn get_system_stats() -> Result<SystemStats> {
             download_bytes_per_sec: download_rate,
             upload_bytes_per_sec: upload_rate,
         },
-        disk: disk_stats,
+        disk: DiskStats {
+            read_bytes_per_sec: 0,
+            write_bytes_per_sec: 0,
+        },
     })
 }
 
@@ -236,7 +230,6 @@ pub fn get_processes() -> Result<Vec<ProcessInfo>> {
 pub fn terminate_process(pid: u32) -> Result<()> {
     use sysinfo::Pid;
 
-    // Protected system processes
     let protected_names = ["System", "csrss.exe", "smss.exe", "wininit.exe", "services.exe"];
 
     let mut sys = SYSTEM.write();
@@ -247,7 +240,6 @@ pub fn terminate_process(pid: u32) -> Result<()> {
     if let Some(process) = sys.process(pid) {
         let name = process.name();
 
-        // Check if process is protected
         if protected_names.iter().any(|p| name.eq_ignore_ascii_case(p)) {
             anyhow::bail!("Cannot terminate protected system process");
         }
@@ -263,7 +255,6 @@ pub fn terminate_process(pid: u32) -> Result<()> {
 }
 
 fn get_gpu_info() -> (String, u64) {
-    // Try to get NVIDIA GPU info
     match nvml_wrapper::Nvml::init() {
         Ok(nvml) => {
             if let Ok(device) = nvml.device_by_index(0) {
@@ -306,21 +297,38 @@ fn get_gpu_stats() -> (f32, Option<f32>, u64) {
 }
 
 fn get_cpu_temperature() -> Option<f32> {
-    // CPU temperature requires platform-specific code
-    // For now, return None - could be implemented using Windows WMI
     None
 }
 
 fn get_network_rates(sys: &System) -> (u64, u64) {
-    let mut total_received = 0;
-    let mut total_transmitted = 0;
+    let mut current_received = 0;
+    let mut current_transmitted = 0;
 
     for (_name, network) in sys.networks() {
-        total_received += network.received();
-        total_transmitted += network.transmitted();
+        current_received += network.received();
+        current_transmitted += network.transmitted();
     }
 
-    // This gives totals, not rates. For real rates, need to track delta over time
-    // For now, returning simplified version
-    (total_received, total_transmitted)
+    let mut last_stats = LAST_NETWORK_STATS.write();
+    let now = Instant::now();
+
+    let (rate_in, rate_out) = match last_stats.take() {
+        Some((last_time, last_received, last_transmitted)) => {
+            let duration = now.duration_since(last_time);
+            let duration_secs = duration.as_secs_f64().max(0.001);
+
+            let bytes_in_diff = current_received.saturating_sub(last_received);
+            let bytes_out_diff = current_transmitted.saturating_sub(last_transmitted);
+
+            let rate_in = (bytes_in_diff as f64 / duration_secs) as u64;
+            let rate_out = (bytes_out_diff as f64 / duration_secs) as u64;
+
+            (rate_in, rate_out)
+        }
+        None => (0, 0),
+    };
+
+    *last_stats = Some((now, current_received, current_transmitted));
+
+    (rate_in, rate_out)
 }

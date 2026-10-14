@@ -7,19 +7,21 @@ interface ConnectionContextType {
   pcInfo: {
     ip: string;
     hostname: string;
+    useTls: boolean;
   } | null;
   stats: any | null;
-  connect: (ip: string) => Promise<void>;
+  connect: (ip: string, useTls?: boolean) => Promise<void>;
   disconnect: () => void;
   sendApiRequest: (method: string, path: string, body?: any) => Promise<any>;
 }
 
 const ConnectionContext = createContext<ConnectionContextType | null>(null);
+const DEFAULT_PORT = 8421;
 
 export function ConnectionProvider({ children }: { children: ReactNode }) {
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [pcInfo, setPcInfo] = useState<{ ip: string; hostname: string } | null>(null);
+  const [pcInfo, setPcInfo] = useState<{ ip: string; hostname: string; useTls: boolean } | null>(null);
   const [stats, setStats] = useState<any | null>(null);
   const [socket, setSocket] = useState<WebSocket | null>(null);
 
@@ -35,15 +37,17 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
   const loadSavedConnection = async () => {
     try {
       const savedIp = await AsyncStorage.getItem('pc_ip');
+      const useTlsStr = await AsyncStorage.getItem('pc_use_tls');
       if (savedIp) {
-        await connect(savedIp);
+        const useTls = useTlsStr === 'true';
+        await connect(savedIp, useTls);
       }
     } catch (error) {
       console.error('Failed to load saved connection:', error);
     }
   };
 
-  const connect = async (ip: string) => {
+  const connect = async (ip: string, useTls: boolean = false) => {
     setIsConnecting(true);
 
     try {
@@ -53,12 +57,10 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       }
 
       const credentials = JSON.parse(credentialsStr);
-
-      // Connect WebSocket
-      const ws = new WebSocket(`ws://${ip}:8421/ws`);
+      const protocol = useTls ? 'wss' : 'ws';
+      const ws = new WebSocket(`${protocol}://${ip}:${DEFAULT_PORT}/ws`);
 
       ws.onopen = () => {
-        // Send authentication
         ws.send(
           JSON.stringify({
             type: 'auth',
@@ -93,8 +95,9 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       };
 
       setSocket(ws);
-      setPcInfo({ ip, hostname: 'Desktop PC' });
+      setPcInfo({ ip, hostname: 'Desktop PC', useTls });
       await AsyncStorage.setItem('pc_ip', ip);
+      await AsyncStorage.setItem('pc_use_tls', useTls.toString());
     } catch (error) {
       console.error('Connection failed:', error);
       setIsConnecting(false);
@@ -122,8 +125,8 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     }
 
     const credentials = JSON.parse(credentialsStr);
-
-    const response = await fetch(`http://${pcInfo.ip}:8421/api${path}`, {
+    const protocol = pcInfo.useTls ? 'https' : 'http';
+    const response = await fetch(`${protocol}://${pcInfo.ip}:${DEFAULT_PORT}/api${path}`, {
       method,
       headers: {
         Authorization: `Bearer ${credentials.access_token}`,

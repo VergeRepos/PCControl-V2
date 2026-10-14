@@ -1,10 +1,9 @@
 use anyhow::Result;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
-/// Device permissions stored in database
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DevicePermissions {
     pub system_monitoring: bool,
@@ -30,7 +29,6 @@ impl Default for DevicePermissions {
     }
 }
 
-/// Device paired with the PC
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Device {
     pub id: String,
@@ -42,24 +40,15 @@ pub struct Device {
     pub permissions: DevicePermissions,
 }
 
-/// Generate a 6-digit numeric pairing code
 pub fn generate_pairing_code() -> String {
     let mut rng = rand::thread_rng();
-    let code: String = (0..6)
-        .map(|_| rng.gen_range(0..10).to_string())
-        .collect();
-    code
+    (0..6).map(|_| rng.gen_range(0..10).to_string()).collect()
 }
 
-/// Verify a pairing code against the stored code
 pub fn verify_pairing_code(input: &str, stored: Option<&str>) -> bool {
-    match stored {
-        Some(stored_code) => input == stored_code,
-        None => false,
-    }
+    stored.map_or(false, |code| input == code)
 }
 
-/// Check if a device has a specific permission
 pub fn check_permission(device: &Device, permission: &str) -> Result<()> {
     let has_permission = match permission {
         "system_monitoring" => device.permissions.system_monitoring,
@@ -79,7 +68,6 @@ pub fn check_permission(device: &Device, permission: &str) -> Result<()> {
     }
 }
 
-/// Create device credentials after successful pairing
 pub fn create_device(
     device_name: String,
     device_type: String,
@@ -101,12 +89,11 @@ pub fn create_device(
     };
 
     let access_token = generate_jwt(&device_id, &secret, 86400)?;
-    let refresh_token = generate_jwt(&device_id, &secret, 2592000)?; // 30 days
+    let refresh_token = generate_jwt(&device_id, &secret, 2592000)?;
 
     Ok((device, access_token, refresh_token))
 }
 
-/// Validate an access token and return the device ID
 pub fn validate_token(token: &str, secret: &str) -> Result<String> {
     let parts: Vec<&str> = token.split('.').collect();
     if parts.len() != 3 {
@@ -117,13 +104,11 @@ pub fn validate_token(token: &str, secret: &str) -> Result<String> {
     let payload = parts[1];
     let signature = parts[2];
 
-    // Verify signature
     let expected_signature = compute_signature(header, payload, secret);
     if signature != expected_signature {
         anyhow::bail!("Invalid token signature");
     }
 
-    // Decode payload and check expiry
     let decoded: TokenPayload = serde_json::from_str(&base64_decode(payload))?;
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)?
@@ -136,7 +121,6 @@ pub fn validate_token(token: &str, secret: &str) -> Result<String> {
     Ok(decoded.sub)
 }
 
-/// Generate a JWT token
 fn generate_jwt(device_id: &str, secret: &str, expires_in_seconds: i64) -> Result<String> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)?
@@ -152,10 +136,9 @@ fn generate_jwt(device_id: &str, secret: &str, expires_in_seconds: i64) -> Resul
     let payload_b64 = base64_encode(&payload);
     let signature = compute_signature(&header, &payload_b64, secret);
 
-    Ok(format!("{}.{}.{}", header, payload_b64, signature))
+    format!("{}.{}.{}", header, payload_b64, signature).parse().map_err(Into::into)
 }
 
-/// Token payload structure
 #[derive(Serialize, Deserialize)]
 struct TokenPayload {
     sub: String,
@@ -163,22 +146,15 @@ struct TokenPayload {
     exp: i64,
 }
 
-/// Generate a random secret
 fn generate_secret() -> String {
     const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    const SECRET_LEN: usize = 32;
-
     let mut rng = rand::thread_rng();
-    let secret: String = (0..SECRET_LEN)
-        .map(|_| {
-            let idx = rng.gen_range(0..CHARSET.len());
-            CHARSET[idx] as char
-        })
-        .collect();
-    secret
+    (0..32).map(|_| {
+        let idx = rng.gen_range(0..CHARSET.len());
+        CHARSET[idx] as char
+    }).collect()
 }
 
-/// Compute HMAC-SHA256 signature
 fn compute_signature(header: &str, payload: &str, secret: &str) -> String {
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
@@ -193,7 +169,6 @@ fn compute_signature(header: &str, payload: &str, secret: &str) -> String {
     base64_encode(&hex::encode(result))
 }
 
-/// Base64 encode without padding
 fn base64_encode(input: &str) -> String {
     const CHARSET: &[u8] =
         b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -222,7 +197,6 @@ fn base64_encode(input: &str) -> String {
     result
 }
 
-/// Base64 decode
 fn base64_decode(input: &str) -> String {
     let input = input.trim_end_matches('=');
     let bytes: Vec<u8> = input
@@ -330,9 +304,6 @@ mod tests {
 
         let device_id = validate_token(&access, "wrong_secret");
         assert!(device_id.is_err());
-
-        // We can't easily test successful validation without the secret
-        // In real usage, the secret comes from the database
     }
 
     #[test]

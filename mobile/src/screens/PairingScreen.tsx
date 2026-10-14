@@ -8,6 +8,7 @@ import {
   Alert,
   SafeAreaView,
   ActivityIndicator,
+  Switch,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Key, Smartphone } from 'lucide-react-native';
@@ -20,6 +21,7 @@ export default function PairingScreen({ onPaired }: PairingScreenProps) {
   const [pcIp, setPcIp] = useState('');
   const [pairingCode, setPairingCode] = useState('');
   const [loading, setLoading] = useState(false);
+  const [useTls, setUseTls] = useState(false);
 
   const handlePair = async () => {
     if (!pcIp.trim() || !pairingCode.trim()) {
@@ -30,7 +32,8 @@ export default function PairingScreen({ onPaired }: PairingScreenProps) {
     setLoading(true);
 
     try {
-      const response = await fetch(`http://${pcIp.trim()}:8421/api/pairing/verify`, {
+      const protocol = useTls ? 'https' : 'http';
+      const response = await fetch(`${protocol}://${pcIp.trim()}:8421/api/pairing/verify`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -49,9 +52,9 @@ export default function PairingScreen({ onPaired }: PairingScreenProps) {
 
       const credentials = await response.json();
 
-      // Save credentials
       await AsyncStorage.setItem('device_credentials', JSON.stringify(credentials));
       await AsyncStorage.setItem('pc_ip', pcIp.trim());
+      await AsyncStorage.setItem('pc_use_tls', useTls.toString());
 
       Alert.alert('Success', 'Device paired successfully!', [
         { text: 'OK', onPress: onPaired },
@@ -66,7 +69,6 @@ export default function PairingScreen({ onPaired }: PairingScreenProps) {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        {/* Header */}
         <View style={styles.header}>
           <Smartphone color="#3b82f6" size={48} />
           <Text style={styles.title}>Pair with PC</Text>
@@ -75,7 +77,6 @@ export default function PairingScreen({ onPaired }: PairingScreenProps) {
           </Text>
         </View>
 
-        {/* Inputs */}
         <View style={styles.form}>
           <View style={styles.inputGroup}>
             <Text style={styles.label}>PC IP Address</Text>
@@ -103,6 +104,19 @@ export default function PairingScreen({ onPaired }: PairingScreenProps) {
             />
           </View>
 
+          <View style={[styles.inputGroup, styles.tlsRow]}>
+            <View>
+              <Text style={styles.label}>Use Secure Connection (TLS)</Text>
+              <Text style={styles.helperText}>Enable for encrypted connections</Text>
+            </View>
+            <Switch
+              value={useTls}
+              onValueChange={setUseTls}
+              trackColor={{ false: '#3d3d3d', true: '#3b82f6' }}
+              thumbColor="#fff"
+            />
+          </View>
+
           <TouchableOpacity
             style={[styles.pairButton, loading && styles.pairButtonDisabled]}
             onPress={handlePair}
@@ -119,7 +133,6 @@ export default function PairingScreen({ onPaired }: PairingScreenProps) {
           </TouchableOpacity>
         </View>
 
-        {/* Help */}
         <View style={styles.helpBox}>
           <Text style={styles.helpTitle}>How to get a pairing code:</Text>
           <Text style={styles.helpText}>1. Open PC Control on your computer</Text>
@@ -220,5 +233,16 @@ const styles = StyleSheet.create({
     color: '#9ca3af',
     fontSize: 13,
     lineHeight: 20,
+  },
+  tlsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+  },
+  helperText: {
+    color: '#6b7280',
+    fontSize: 12,
+    marginTop: 2,
   },
 });
